@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Grid Reliability Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #111827;
+    --bg3: #1c2537;
+    --card: #151e30;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --accent: #38bdf8;
+    --accent2: #0ea5e9;
+    --low: #22c55e;
+    --mod: #f59e0b;
+    --high: #f97316;
+    --crit: #ef4444;
+    --font: 'DM Sans', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+
+  /* ── Sidebar ──────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 28px 20px;
+    display: flex; flex-direction: column; gap: 8px;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  .sidebar-logo {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 8px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #1d4ed8, #06b6d4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .logo-text { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+  .logo-sub  { font-size: 11px; color: var(--text3); }
+
+  .nav-label { font-size: 10px; font-weight: 600; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; padding: 16px 8px 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    font-size: 13px; color: var(--text2);
+    cursor: pointer; transition: all 0.15s;
+    border: 1px solid transparent;
+  }
+  .nav-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-item.active { background: rgba(56,189,248,0.1); color: var(--accent); border-color: rgba(56,189,248,0.2); }
+  .nav-icon { width: 16px; text-align: center; font-size: 14px; }
+
+  .status-pill {
+    margin-top: auto; padding: 12px; border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .status-pill .s-label { font-size: 10px; color: var(--text3); margin-bottom: 4px; }
+  .status-pill .s-val { font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--low); box-shadow: 0 0 6px var(--low); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+
+  /* ── Main ─────────────────────────────────────────── */
+  .main { padding: 32px; overflow-y: auto; }
+
+  .page-header { margin-bottom: 28px; }
+  .page-header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .page-header p  { font-size: 13px; color: var(--text2); }
+
+  /* ── Tab bar ─────────────────────────────────────── */
+  .tabs { display: flex; gap: 4px; background: var(--bg2); padding: 4px; border-radius: 10px; margin-bottom: 28px; width: fit-content; border: 1px solid var(--border); }
+  .tab { padding: 7px 18px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--text2); transition: all 0.15s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--card); color: var(--text); border: 1px solid var(--border2); }
+
+  /* ── Sections ─────────────────────────────────────── */
+  .section { display: none; }
+  .section.visible { display: block; }
+
+  /* ── Cards ────────────────────────────────────────── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .card-title  { font-size: 13px; font-weight: 500; color: var(--text2); letter-spacing: 0.02em; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+
+  /* ── Sliders ──────────────────────────────────────── */
+  .slider-group { margin-bottom: 20px; }
+  .slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .slider-label { font-size: 13px; color: var(--text2); }
+  .slider-unit  { font-size: 11px; color: var(--text3); margin-left: 4px; }
+  .slider-val   { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); }
+
+  input[type=range] {
+    width: 100%; height: 4px; -webkit-appearance: none;
+    background: var(--bg3); border-radius: 4px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--bg); box-shadow: 0 0 6px rgba(56,189,248,0.4);
+    cursor: pointer;
+  }
+
+  /* ── Predict button ───────────────────────────────── */
+  .btn-predict {
+    width: 100%; padding: 13px;
+    background: linear-gradient(135deg, #1d4ed8, #0891b2);
+    border: none; border-radius: 10px;
+    color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+    letter-spacing: 0.03em;
+  }
+  .btn-predict:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(8,145,178,0.35); }
+  .btn-predict:active { transform: translateY(0); }
+  .btn-predict:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* ── Result cards ─────────────────────────────────── */
+  .result-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; text-align: center;
+  }
+  .result-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); margin-bottom: 8px; }
+  .result-val   { font-family: var(--mono); font-size: 26px; font-weight: 600; }
+  .result-sub   { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+  /* ── Risk badge ───────────────────────────────────── */
+  .risk-banner {
+    border-radius: 10px; padding: 16px 20px;
+    display: flex; align-items: center; gap: 14px;
+    border: 1px solid transparent;
+    transition: all 0.4s;
+  }
+  .risk-banner.LOW      { background: rgba(34,197,94,0.08);   border-color: rgba(34,197,94,0.25);  }
+  .risk-banner.MODERATE { background: rgba(245,158,11,0.08);  border-color: rgba(245,158,11,0.25); }
+  .risk-banner.HIGH     { background: rgba(249,115,22,0.08);  border-color: rgba(249,115,22,0.25); }
+  .risk-banner.CRITICAL { background: rgba(239,68,68,0.08);   border-color: rgba(239,68,68,0.25);  }
+  .risk-level-text { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+  .risk-level-text.LOW      { color: var(--low);  }
+  .risk-level-text.MODERATE { color: var(--mod);  }
+  .risk-level-text.HIGH     { color: var(--high); }
+  .risk-level-text.CRITICAL { color: var(--crit); }
+  .risk-interp { font-size: 13px; color: var(--text2); line-height: 1.5; }
+
+  /* ── Gauge ────────────────────────────────────────── */
+  .gauge-wrap { display: flex; justify-content: center; margin: 8px 0; }
+
+  /* ── Metric chip ──────────────────────────────────── */
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .chip.info { background: rgba(56,189,248,0.1); color: var(--accent); }
+
+  /* ── Separator ────────────────────────────────────── */
+  .sep { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* ── Feature bar ──────────────────────────────────── */
+  .feat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .feat-name { font-size: 12px; color: var(--text2); width: 90px; flex-shrink: 0; font-family: var(--mono); }
+  .feat-bar-bg { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .feat-bar { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .feat-pct  { font-size: 12px; font-family: var(--mono); color: var(--text2); width: 44px; text-align: right; }
+
+  /* ── History table ────────────────────────────────── */
+  .history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .history-table th { padding: 8px 10px; text-align: left; color: var(--text3); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .history-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text2); }
+  .history-table tr:hover td { background: var(--bg3); }
+
+  /* ── Chart containers ─────────────────────────────── */
+  .chart-box { position: relative; width: 100%; }
+
+  /* ── Loading spinner ──────────────────────────────── */
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Empty state ──────────────────────────────────── */
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text3); }
+  .empty-icon  { font-size: 32px; margin-bottom: 8px; opacity: 0.4; }
+  .empty-text  { font-size: 13px; }
+
+  /* ── Responsive ───────────────────────────────────── */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { height: auto; position: static; flex-direction: row; flex-wrap: wrap; padding: 16px; }
+    .sidebar-logo { border: none; padding-bottom: 0; margin-bottom: 0; }
+    .grid-4 { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- ── Sidebar ───────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <div class="logo-text">GridSense AI</div>
+        <div class="logo-sub">Reliability Platform</div>
+      </div>
+    </div>
+
+    <div class="nav-label">Navigation</div>
+    <div class="nav-item active" onclick="showTab('predict', this)">
+      <span class="nav-icon">🎯</span> Predict
+    </div>
+    <div class="nav-item" onclick="showTab('analytics', this)">
+      <span class="nav-icon">📊</span> Analytics
+    </div>
+    <div class="nav-item" onclick="showTab('insights', this)">
+      <span class="nav-icon">💡</span> Insights
+    </div>
+
+    <div class="nav-label">System</div>
+    <div class="nav-item" onclick="showTab('history', this)">
+      <span class="nav-icon">📋</span> History
+    </div>
+
+    <div class="status-pill">
+      <div class="s-label">API Status</div>
+      <div class="s-val"><span class="dot"></span><span id="api-status">Checking…</span></div>
+    </div>
+  </aside>
+
+  <!-- ── Main ─────────────────────────────────────── -->
+  <main class="main">
+    <div class="page-header">
+      <h1>Power Grid Reliability Monitor</h1>
+      <p>Weather-driven ML predictions for Loss of Load Probability and Expected Energy Not Served</p>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('predict', null, this)">Predict</div>
+      <div class="tab" onclick="showTab('analytics', null, this)">Analytics</div>
+      <div class="tab" onclick="showTab('insights', null, this)">Insights</div>
+      <div class="tab" onclick="showTab('history', null, this)">History</div>
+    </div>
+
+    <!-- ═══════════ PREDICT ═══════════ -->
+    <div id="section-predict" class="section visible">
+      <div class="grid-2" style="align-items: start;">
+
+        <!-- Input panel -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Weather Parameters</span>
+            <span class="chip info">Live Input</span>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">Temperature <span class="slider-unit">°C</span></span>
+              <span class="slider-val" id="val-temp">25.0</span>
+            </div>
+            <input type="range" id="s-temp" min="-5" max="50" step="0.5" value="25"
+              oninput="document.getElementById('val-temp').textContent=parseFloat(this.value).toFixed(1)">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">Rainfall <span class="slider-unit">mm/day</span></span>
+              <span class="slider-val" id="val-rain">10.0</span>
+            </div>
+            <input type="range" id="s-rain" min="0" max="300" step="1" value="10"
+              oninput="document.getElementById('val-rain').textContent=parseFloat(this.value).toFixed(1)">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">Humidity <span class="slider-unit">%</span></span>
+              <span class="slider-val" id="val-hum">60.0</span>
+            </div>
+            <input type="range" id="s-hum" min="0" max="100" step="1" value="60"
+              oninput="document.getElementById('val-hum').textContent=parseFloat(this.value).toFixed(1)">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span class="slider-label">Wind Speed <span class="slider-unit">m/s</span></span>
+              <span class="slider-val" id="val-wind">10.0</span>
+            </div>
+            <input type="range" id="s-wind" min="0" max="50" step="0.5" value="10"
+              oninput="document.getElementById('val-wind').textContent=parseFloat(this.value).toFixed(1)">
+          </div>
+
+          <div class="sep"></div>
+
+          <!-- Presets -->
+          <div style="margin-bottom: 16px;">
+            <div class="card-title" style="margin-bottom: 10px;">Quick Presets</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <button class="preset-btn" onclick="applyPreset(25,5,60,10)">☀️ Normal</button>
+              <button class="preset-btn" onclick="applyPreset(43,15,85,8)">🌡️ Heat Wave</button>
+              <button class="preset-btn" onclick="applyPreset(28,120,92,18)">🌧️ Monsoon</button>
+              <button class="preset-btn" onclick="applyPreset(15,5,55,32)">🌪️ Storm</button>
+              <button class="preset-btn" onclick="applyPreset(5,0,40,8)">❄️ Winter</button>
+              <button class="preset-btn" onclick="applyPreset(45,90,93,30)">⛈️ Extreme</button>
+            </div>
+          </div>
+
+          <button class="btn-predict" id="btn-predict" onclick="runPredict()">
+            Run Prediction
+          </button>
+        </div>
+
+        <!-- Results panel -->
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+
+          <!-- Risk banner -->
+          <div id="risk-banner" class="risk-banner LOW">
+            <div>
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Risk Level</div>
+              <div class="risk-level-text LOW" id="risk-text">—</div>
+            </div>
+            <div class="sep" style="width:1px;height:48px;margin:0;background:var(--border);"></div>
+            <div class="risk-interp" id="risk-interp">Run a prediction to assess current grid reliability status.</div>
+          </div>
+
+          <!-- LOLP + EENS -->
+          <div class="grid-2" style="margin-bottom: 0;">
+            <div class="result-card">
+              <div class="result-label">LOLP</div>
+              <div class="result-val" id="res-lolp" style="color: var(--accent);">—</div>
+              <div class="result-sub">Loss of Load Probability</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">EENS</div>
+              <div class="result-val" id="res-eens" style="color: #a78bfa;">—</div>
+              <div class="result-sub">Exp. Energy Not Served (GWh)</div>
+            </div>
+          </div>
+
+          <!-- WSI + CWVI -->
+          <div class="grid-2" style="margin-bottom: 0;">
+            <div class="result-card">
+              <div class="result-label">WSI</div>
+              <div class="result-val" id="res-wsi" style="color: var(--mod); font-size: 22px;">—</div>
+              <div class="result-sub">Weather Stress Index</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">CWVI</div>
+              <div class="result-val" id="res-cwvi" style="color: var(--high); font-size: 22px;">—</div>
+              <div class="result-sub">Combined Vulnerability Index</div>
+            </div>
+          </div>
+
+          <!-- LOLP gauge -->
+          <div class="card">
+            <div class="card-title" style="margin-bottom: 14px;">LOLP Gauge</div>
+            <div class="gauge-wrap">
+              <canvas id="gaugeChart" width="260" height="140"></canvas>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); margin-top: 4px; padding: 0 8px;">
+              <span>0% — Safe</span><span>5%</span><span>15%</span><span>25%+ — Critical</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ ANALYTICS ═══════════ -->
+    <div id="section-analytics" class="section">
+      <div class="grid-2" style="margin-bottom: 16px; align-items: start;">
+        <div class="card">
+          <div class="card-header"><span class="card-title">LOLP vs Temperature</span></div>
+          <div class="chart-box" style="height: 240px;"><canvas id="chart-lolp-temp"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">EENS vs Rainfall</span></div>
+          <div class="chart-box" style="height: 240px;"><canvas id="chart-eens-rain"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Risk Distribution (Simulation: 500 random scenarios)</span></div>
+        <div class="chart-box" style="height: 260px;"><canvas id="chart-risk-dist"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ═══════════ INSIGHTS ═══════════ -->
+    <div id="section-insights" class="section">
+      <div class="grid-2" style="align-items: start;">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Feature Importance — LOLP Model</span>
+          </div>
+          <div id="fi-lolp-bars"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Feature Importance — EENS Model</span>
+          </div>
+          <div id="fi-eens-bars"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <div class="card-header"><span class="card-title">Model Performance Summary</span></div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+          <div class="result-card">
+            <div class="result-label">LOLP R²</div>
+            <div class="result-val" style="font-size: 22px; color: var(--low);">0.932</div>
+            <div class="result-sub">Test set score</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">LOLP MAE</div>
+            <div class="result-val" style="font-size: 22px; color: var(--accent);">0.00228</div>
+            <div class="result-sub">Mean absolute error</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Algorithm</div>
+            <div class="result-val" style="font-size: 14px; color: var(--text2); margin-top: 6px;">Random Forest</div>
+            <div class="result-sub">300 trees, depth 18</div>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div style="font-size: 12px; color: var(--text3); line-height: 1.7;">
+          Models trained on 7,000 rows of synthetic weather–grid data. LOLP achieves R²=0.932 on the held-out test set, driven primarily by
+          CWVI (Combined Weather-Vulnerability Index) which captures both atmospheric stress and demand/capacity ratio simultaneously.
+          EENS prediction is inherently harder due to the stochastic nature of outage events — the model captures the conditional mean well
+          but cannot predict individual random spikes.
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ HISTORY ═══════════ -->
+    <div id="section-history" class="section">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Prediction History</span>
+          <button onclick="clearHistory()" style="font-size:11px;color:var(--text3);background:none;border:1px solid var(--border);padding:4px 10px;border-radius:6px;cursor:pointer;">Clear</button>
+        </div>
+        <div id="history-body">
+          <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <div class="empty-text">No predictions yet. Go to Predict to get started.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<style>
+.preset-btn {
+  padding: 6px 12px; font-size: 11px; border-radius: 6px;
+  background: var(--bg3); border: 1px solid var(--border2);
+  color: var(--text2); cursor: pointer; transition: all 0.15s;
+}
+.preset-btn:hover { background: var(--card); color: var(--text); border-color: var(--accent); }
+</style>
+
+<script>
+const API = 'http://localhost:8000';
+let gaugeChart = null;
+let history = [];
+
+// ── Tab switching ────────────────────────────────────────
+function showTab(name, sidebarEl, tabEl) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('visible'));
+  document.getElementById('section-' + name).classList.add('visible');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  if (sidebarEl) sidebarEl.classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
+  else {
+    document.querySelectorAll('.tab').forEach(t => {
+      if (t.textContent.toLowerCase().includes(name.substring(0,4))) t.classList.add('active');
+    });
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.textContent.toLowerCase().includes(name.substring(0,4))) n.classList.add('active');
+    });
+  }
+  if (name === 'analytics')  buildAnalyticsCharts();
+  if (name === 'insights')   loadFeatureImportance();
+  if (name === 'history')    renderHistory();
+}
+
+// ── API health check ────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    const d = await r.json();
+    document.getElementById('api-status').textContent = 'Connected';
+    document.querySelector('.dot').style.background = 'var(--low)';
+    document.querySelector('.dot').style.boxShadow = '0 0 6px var(--low)';
+  } catch {
+    document.getElementById('api-status').textContent = 'Offline';
+    document.querySelector('.dot').style.background = 'var(--crit)';
+    document.querySelector('.dot').style.boxShadow = '0 0 6px var(--crit)';
+  }
+}
+
+// ── Preset loader ───────────────────────────────────────
+function applyPreset(t, r, h, w) {
+  document.getElementById('s-temp').value = t;
+  document.getElementById('s-rain').value = r;
+  document.getElementById('s-hum').value  = h;
+  document.getElementById('s-wind').value = w;
+  document.getElementById('val-temp').textContent = t.toFixed(1);
+  document.getElementById('val-rain').textContent = r.toFixed(1);
+  document.getElementById('val-hum').textContent  = h.toFixed(1);
+  document.getElementById('val-wind').textContent = w.toFixed(1);
+}
+
+// ── Prediction ──────────────────────────────────────────
+async function runPredict() {
+  const btn = document.getElementById('btn-predict');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Predicting…';
+
+  const payload = {
+    temperature: parseFloat(document.getElementById('s-temp').value),
+    rainfall:    parseFloat(document.getElementById('s-rain').value),
+    humidity:    parseFloat(document.getElementById('s-hum').value),
+    wind_speed:  parseFloat(document.getElementById('s-wind').value),
+  };
+
+  try {
+    const res = await fetch(API + '/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const d = await res.json();
+    displayResult(d);
+    history.unshift({ ...d, ts: new Date().toLocaleTimeString() });
+    if (history.length > 50) history.pop();
+  } catch (e) {
+    // Offline demo mode: simulate realistic predictions
+    const sim = simulatePrediction(payload);
+    displayResult(sim);
+    history.unshift({ ...sim, ts: new Date().toLocaleTimeString() });
+    document.getElementById('api-status').textContent = 'Demo Mode';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run Prediction';
+  }
+}
+
+function simulatePrediction(p) {
+  const t_n = Math.max(0, Math.min(1, (p.temperature+5)/55));
+  const r_n = Math.max(0, Math.min(1, p.rainfall/300));
+  const h_n = Math.max(0, Math.min(1, (p.humidity-20)/80));
+  const w_n = Math.max(0, Math.min(1, p.wind_speed/50));
+  const wsi  = 0.35*t_n + 0.25*r_n + 0.25*w_n + 0.15*h_n;
+  const dproxy = 1 + Math.max(0,(p.temperature-22))*0.008 + Math.max(0,15-p.temperature)*0.005;
+  const lr = Math.max(0, Math.min(1, (dproxy/1.05 - 0.9)/0.15));
+  const cwvi = wsi + lr*0.5;
+  const lolp = Math.max(0, Math.min(1, Math.pow(cwvi,2)*0.18 + (wsi>0.7?0.04:0)));
+  const eens = lolp > 0.001 ? lolp * (0.8 + Math.random()*0.8) : 0.0002;
+  const risk = lolp < 0.01 && eens < 0.05 ? 'LOW'
+             : lolp < 0.05 || eens < 0.5   ? 'MODERATE'
+             : lolp < 0.15 || eens < 2.0   ? 'HIGH' : 'CRITICAL';
+  const interps = {
+    LOW:      'Grid is stable. No significant reliability concerns under current weather.',
+    MODERATE: 'Minor stress on grid. Monitor conditions; demand response may be warranted.',
+    HIGH:     'Elevated risk of supply shortfall. Activate reserves and alert operators.',
+    CRITICAL: 'Severe grid stress. Immediate load-shedding or emergency response required.',
+  };
+  return { ...p, WSI: +wsi.toFixed(6), CWVI: +cwvi.toFixed(6),
+    LOLP: +lolp.toFixed(6), EENS: +eens.toFixed(4),
+    risk_level: risk, interpretation: interps[risk] };
+}
+
+function displayResult(d) {
+  const riskColors = { LOW: 'var(--low)', MODERATE: 'var(--mod)', HIGH: 'var(--high)', CRITICAL: 'var(--crit)' };
+  document.getElementById('res-lolp').textContent  = (d.LOLP * 100).toFixed(3) + '%';
+  document.getElementById('res-eens').textContent  = d.EENS.toFixed(4);
+  document.getElementById('res-wsi').textContent   = d.WSI.toFixed(4);
+  document.getElementById('res-cwvi').textContent  = d.CWVI.toFixed(4);
+  document.getElementById('risk-text').textContent = d.risk_level;
+  document.getElementById('risk-text').className   = 'risk-level-text ' + d.risk_level;
+  document.getElementById('risk-interp').textContent = d.interpretation;
+  const banner = document.getElementById('risk-banner');
+  banner.className = 'risk-banner ' + d.risk_level;
+  updateGauge(d.LOLP);
+}
+
+// ── Gauge ────────────────────────────────────────────────
+function initGauge() {
+  const ctx = document.getElementById('gaugeChart').getContext('2d');
+  gaugeChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [0, 100],
+        backgroundColor: ['#38bdf8', '#1c2537'],
+        borderWidth: 0,
+        circumference: 180,
+        rotation: -90,
+      }]
+    },
+    options: {
+      responsive: false,
+      cutout: '72%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    }
+  });
+}
+
+function updateGauge(lolp) {
+  const pct  = Math.min(lolp * 100, 100);
+  const color = pct < 1 ? '#22c55e' : pct < 5 ? '#f59e0b' : pct < 15 ? '#f97316' : '#ef4444';
+  gaugeChart.data.datasets[0].data = [pct, 100 - pct];
+  gaugeChart.data.datasets[0].backgroundColor[0] = color;
+  gaugeChart.update();
+}
+
+// ── Analytics charts ─────────────────────────────────────
+let analyticsBuilt = false;
+function buildAnalyticsCharts() {
+  if (analyticsBuilt) return;
+  analyticsBuilt = true;
+
+  // Generate 40 sample points: LOLP vs Temperature
+  const temps = Array.from({length:40}, (_,i) => -5 + i * 1.4);
+  const lolps  = temps.map(t => {
+    const t_n = Math.max(0, Math.min(1, (t+5)/55));
+    const base = 0.35*t_n;
+    return Math.max(0, Math.pow(base, 2)*0.22 + (t>38 ? (t-38)*0.006 : 0));
+  });
+
+  new Chart(document.getElementById('chart-lolp-temp'), {
+    type: 'line',
+    data: {
+      labels: temps.map(t => t.toFixed(0)+'°C'),
+      datasets: [{
+        label: 'LOLP',
+        data: lolps.map(v => +(v*100).toFixed(4)),
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56,189,248,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#64748b', callback: v => v.toFixed(2)+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+
+  // EENS vs Rainfall
+  const rains = Array.from({length:40}, (_,i) => i * 7.5);
+  const eens  = rains.map(r => {
+    const r_n = r/300;
+    const stress = r > 80 ? (r-80)*0.003 : 0;
+    return Math.max(0, stress * 0.12 + r_n * 0.08);
+  });
+
+  new Chart(document.getElementById('chart-eens-rain'), {
+    type: 'line',
+    data: {
+      labels: rains.map(r => r.toFixed(0)+'mm'),
+      datasets: [{
+        label: 'EENS',
+        data: eens.map(v => +v.toFixed(5)),
+        borderColor: '#a78bfa',
+        backgroundColor: 'rgba(167,139,250,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+
+  // Risk distribution
+  const counts = { LOW: 0, MODERATE: 0, HIGH: 0, CRITICAL: 0 };
+  for (let i = 0; i < 500; i++) {
+    const p = {
+      temperature: Math.random()*55 - 5,
+      rainfall:    Math.random()*300,
+      humidity:    Math.random()*100,
+      wind_speed:  Math.random()*50,
+    };
+    const sim = simulatePrediction(p);
+    counts[sim.risk_level]++;
+  }
+  new Chart(document.getElementById('chart-risk-dist'), {
+    type: 'bar',
+    data: {
+      labels: ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'],
+      datasets: [{
+        label: 'Scenarios',
+        data: [counts.LOW, counts.MODERATE, counts.HIGH, counts.CRITICAL],
+        backgroundColor: ['rgba(34,197,94,0.7)','rgba(245,158,11,0.7)','rgba(249,115,22,0.7)','rgba(239,68,68,0.7)'],
+        borderColor:     ['#22c55e','#f59e0b','#f97316','#ef4444'],
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { display: false } },
+        y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+// ── Feature importance ───────────────────────────────────
+const FEAT_COLORS = {
+  temperature: '#38bdf8', rainfall: '#60a5fa',
+  humidity: '#a78bfa', wind_speed: '#34d399',
+  WSI: '#fb923c', CWVI: '#f472b6',
+};
+
+async function loadFeatureImportance() {
+  const lolpData = {temperature:0.0823,rainfall:0.0143,humidity:0.0782,wind_speed:0.0270,WSI:0.1798,CWVI:0.6183};
+  const eensData = {temperature:0.1996,rainfall:0.0478,humidity:0.1545,wind_speed:0.1119,WSI:0.1824,CWVI:0.3038};
+
+  try {
+    const r = await fetch(API + '/feature-importance');
+    const d = await r.json();
+    renderFIBars('fi-lolp-bars', d.LOLP);
+    renderFIBars('fi-eens-bars', d.EENS);
+    return;
+  } catch {}
+
+  renderFIBars('fi-lolp-bars', lolpData);
+  renderFIBars('fi-eens-bars', eensData);
+}
+
+function renderFIBars(containerId, data) {
+  const sorted = Object.entries(data).sort((a,b) => b[1]-a[1]);
+  const max = sorted[0][1];
+  const container = document.getElementById(containerId);
+  container.innerHTML = sorted.map(([k, v]) => `
+    <div class="feat-row">
+      <span class="feat-name">${k}</span>
+      <div class="feat-bar-bg">
+        <div class="feat-bar" style="width:${(v/max*100).toFixed(1)}%;background:${FEAT_COLORS[k]||'#94a3b8'}"></div>
+      </div>
+      <span class="feat-pct">${(v*100).toFixed(1)}%</span>
+    </div>
+  `).join('');
+}
+
+// ── History ──────────────────────────────────────────────
+function renderHistory() {
+  const el = document.getElementById('history-body');
+  if (!history.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No predictions yet.</div></div>';
+    return;
+  }
+  const riskDot = r => {
+    const c = {LOW:'var(--low)',MODERATE:'var(--mod)',HIGH:'var(--high)',CRITICAL:'var(--crit)'}[r];
+    return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px;"></span>${r}`;
+  };
+  el.innerHTML = `
+    <table class="history-table">
+      <thead><tr>
+        <th>Time</th><th>Temp</th><th>Rain</th><th>Hum</th><th>Wind</th>
+        <th>LOLP</th><th>EENS</th><th>Risk</th>
+      </tr></thead>
+      <tbody>
+        ${history.map(h => `<tr>
+          <td>${h.ts}</td>
+          <td>${h.temperature}°C</td>
+          <td>${h.rainfall}mm</td>
+          <td>${h.humidity}%</td>
+          <td>${h.wind_speed}m/s</td>
+          <td style="font-family:var(--mono)">${(h.LOLP*100).toFixed(3)}%</td>
+          <td style="font-family:var(--mono)">${h.EENS.toFixed(4)}</td>
+          <td>${riskDot(h.risk_level)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function clearHistory() {
+  history = [];
+  renderHistory();
+}
+
+// ── Init ─────────────────────────────────────────────────
+checkHealth();
+initGauge();
+</script>
+</body>
+</html>

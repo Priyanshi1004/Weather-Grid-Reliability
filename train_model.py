@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
 sys.path.insert(0, os.path.dirname(__file__))
-from generate_weather import generate_weather
+#from generate_weather import generate_weather
 from grid_simulator import simulate_grid
 from feature_engineering import add_features
 
@@ -32,24 +32,53 @@ DATA_DIR  = "data"
 # ──────────────────────────────────────────────────────────────
 def build_dataset() -> pd.DataFrame:
     os.makedirs(DATA_DIR, exist_ok=True)
+
+    weather_path = os.path.join(DATA_DIR, "weather_data.csv")
+    grid_path    = os.path.join(DATA_DIR, "grid_dataset.csv")
+
+    if not os.path.exists(weather_path) or not os.path.exists(grid_path):
+        raise FileNotFoundError("weather_data.csv or grid_dataset.csv not found in /data folder")
+
+    print("[dataset] Loading weather and grid data...")
+
+    weather = pd.read_csv("C:/Users/sudhi/Downloads/weather_grid_project/data/weather_data.csv")
+    grid    = pd.read_csv("C:/Users/sudhi/Downloads/weather_grid_project/data/grid_dataset.csv")
+
+    # ── Normalize column names ───────────────────────────────
+    weather = weather.rename(columns={"date": "timestamp"})
+
+    # ── Convert to datetime (MIXED FORMAT FIX) ────────────────
+    weather["timestamp"] = pd.to_datetime(
+        weather["timestamp"],
+        format="mixed",
+        dayfirst=True
+    )
+    grid["timestamp"] = pd.to_datetime(
+        grid["timestamp"],
+        format="mixed",
+        dayfirst=True
+    )
+
+    # ── Merge datasets ───────────────────────────────────────
+    df = pd.merge(weather, grid, on="timestamp", how="inner")
+
+    print(f"[dataset] Merged dataset size: {len(df)} rows")
+
+    # ── Compute targets (minimal logic, no change to pipeline) ──
+    df["LOLP"] = ((df["load_demand"] - df["generation_capacity"]) 
+                / df["generation_capacity"]).clip(lower=0)
+
+    df["EENS"] = df["outage_duration"] * df["load_demand"]
+
+    # ── Add features (WSI, CWVI etc.) ────────────────────────
+    df = add_features(df)
+
+    # Optional: save merged dataset
     csv_path = os.path.join(DATA_DIR, "grid_dataset.csv")
-    if os.path.exists(csv_path):
-        print(f"[dataset] Loading cached dataset from {csv_path}")
-        return pd.read_csv(csv_path)
+    df.to_csv(csv_path, index=False)
+    print(f"[dataset] Saved merged dataset → {csv_path}")
 
-    print("[dataset] Generating weather data …")
-    weather = generate_weather(10_000)
-
-    print("[dataset] Running grid simulator …")
-    grid_df = simulate_grid(weather)
-
-    print("[dataset] Computing features …")
-    full_df = add_features(grid_df)
-
-    full_df.to_csv(csv_path, index=False)
-    print(f"[dataset] Saved → {csv_path}  ({len(full_df)} rows)")
-    return full_df
-
+    return df
 
 # ──────────────────────────────────────────────────────────────
 # 2. Split
